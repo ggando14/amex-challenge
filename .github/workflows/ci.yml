@@ -35,7 +35,7 @@ jobs:
     name: Dependency audit (non-blocking)
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Non-blocking until the remaining moderate valibot finding is resolved; see README.
+    # Non-blocking for now; it passes at `high`, so it can be made blocking. See README.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4

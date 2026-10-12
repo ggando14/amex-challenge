@@ -82,7 +82,9 @@ Runs on pull requests and pushes to `main`, with least-privilege permissions
 - **`docker`**: builds the image (no push) so a broken Dockerfile is caught in review.
 - **`audit`**: `npm audit --omit=dev --audit-level=high`, **non-blocking**
   (`continue-on-error`). See [Known issues](#known-issues-and-next-steps).
-- **Dependabot**: weekly updates for npm (minor/patch grouped) and GitHub Actions.
+- **Dependabot**: weekly updates for npm and GitHub Actions. Minor and patch npm updates are
+  grouped into one PR; major bumps arrive as separate PRs so each can be reviewed alone (the
+  Fastify 5 upgrade, #7, came this way).
 
 **Deployment (CD) is not configured.** The brief names no hosting target, so I did not guess
 one. The Docker image is the deployable artifact; the missing step is "push to a registry and
@@ -164,12 +166,13 @@ README. No application or framework code changed for Task 2.
 
 **Dependency findings (`npm audit`)**
 
-- `fastify` was upgraded 4.29.1 → 5.12.5 by Dependabot (PR #7), which clears the high
-  advisories. I first held it back because it changes the framework the tasks are built on;
-  before merging I ran the build and server locally (and with Task 2 on top) and checked
-  that the routes, tests and audit were healthy. `valibot@0.30` (moderate, provided
-  framework) is still on a pre-1.x release; the fix is a major upgrade, so it stays a
-  separate PR. Remaining plan: upgrade it, then make the `audit` job blocking.
+- `fastify` was upgraded 4.29.1 → 5.12.5 (Dependabot PR #7, merged by the repo owner), which
+  clears the high advisories. I first held it back because it changes the framework the tasks
+  are built on; before merging, the build, server, tests and audit were run locally on the PR
+  (and with Task 2 on top) and were healthy. `valibot@0.30` (moderate, provided framework) is
+  still on a pre-1.x release; the fix is a major upgrade and Dependabot has not opened a PR
+  for it, so it needs a manual, separate PR. The `audit` job gates on `high`, which now
+  passes, so it can be made blocking now; it stays non-blocking only until that is decided.
 - `esbuild` was bumped to 0.28, which clears its advisory. The bump was needed anyway:
   vitest 4's vite requires `esbuild ^0.27 || ^0.28`, and a mismatch made `npm ci` fail on
   npm 10.
@@ -213,3 +216,7 @@ README. No application or framework code changed for Task 2.
 - Replace the hard-coded API URL and port in the app and server with configuration.
 - Integration tests against the running server, and a DOM-level test of the hook.
 - Pin GitHub Actions to commit SHAs (Dependabot can then keep them current).
+- Triage the open Dependabot PRs one by one; none are merged. Several are major bumps
+  (Actions `checkout`/`setup-node`/`build-push-action`/`setup-buildx`, `vitest` 5,
+  `eslint-plugin-react-hooks` 7, `react-dom`), and `@types/node` 26 conflicts with the Node 20
+  pin, so each needs its own check rather than a bulk merge.
