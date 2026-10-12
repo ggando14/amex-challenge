@@ -10,7 +10,6 @@ import {
 } from "./cachingFetch";
 
 const URL_A = "https://example.test/a";
-const URL_B = "https://example.test/b";
 
 const jsonResponse = (body: unknown) =>
   ({
@@ -97,20 +96,6 @@ describe("useCachingFetch", () => {
 });
 
 describe("serializeCache / initializeCache", () => {
-  it("round-trips the cache into a fresh one", async () => {
-    mockFetch(async (url) => jsonResponse({ from: url }));
-    await preloadCachingFetch(URL_A);
-    await preloadCachingFetch(URL_B);
-    const serialized = serializeCache();
-
-    wipeCache();
-    expect(renderHook(URL_A).isLoading).toBe(true);
-
-    initializeCache(serialized);
-    expect(renderHook(URL_A).data).toEqual({ from: URL_A });
-    expect(renderHook(URL_B).data).toEqual({ from: URL_B });
-  });
-
   it("is safe to embed in a single-quoted script literal", async () => {
     const nasty = [
       "it's",

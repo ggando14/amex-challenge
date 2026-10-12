@@ -58,7 +58,7 @@ Each item is its own commit on `chore/task1-repo-setup`, so the reasoning is eas
   and `--max-warnings 0`. The `recommended` presets catch real bugs without the noise or slow
   type-aware linting of the `strict`/`type-checked` presets. ESLint and Prettier are kept
   separate: ESLint finds problems, Prettier formats.
-- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 21 tests in four files:
+- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 19 tests in four files:
   `validateData` (valid, empty, missing field, wrong type, non-array), the `Name`/`Person`
   components (details at the right index, loading, error), and the caching library plus its
   server-side acceptance criteria (see Task 2). Tests are written to be non-flaky by construction: no network (the fetch hook is
@@ -117,19 +117,20 @@ the temporary lint/format exclusions).
   The framework pastes the string into a single-quoted `<script>` literal without escaping, so
   raw JSON containing `'`, `\` or `</script>` would break the page or allow script injection.
   `initializeCache` reverses it. `wipeCache` clears the map (the framework calls it per request).
-- **Tests** (`cachingFetch.test.tsx`, 8): concurrent preloads make one fetch; preloaded data
-  reaches the hook synchronously; failed or non-2xx preloads don't throw and aren't
-  serialized; the hook doesn't fetch during server rendering; serialize/initialize round
-  trip; the serialized string is safe for the framework's single-quoted script literal (no
-  `'`, `"`, `\`, `<`, `>` or whitespace; removing the `'` escape makes this test fail);
-  `wipeCache` empties the cache. The hook's client-side effect (fetch on mount, re-render on
-  settle) is not unit-tested: it needs a DOM environment, and was verified in Chrome instead.
-- **Acceptance tests** (`acceptance.test.tsx`, 3): the real `<App />` with only `fetch` stubbed.
-  After `preLoadServerData` the server HTML contains every person, with no "Loading..." and
-  one request in total (the JS-off criterion); without a preload the server renders
-  "Loading..." and never fetches; after `initializeCache(serializeCache())` in a fresh cache
-  the app renders from the cache with zero requests. The browser-only criterion (exactly one
-  request from `useEffect` while hydrating) is not automated and stays a manual Chrome check.
+- **Unit tests** (`cachingFetch.test.tsx`, 6): concurrent preloads make one fetch; preloaded
+  data reaches the hook synchronously; failed or non-2xx preloads don't throw and aren't
+  serialized; the hook doesn't fetch during server rendering; the serialized string is safe
+  for the framework's single-quoted script literal (no `'`, `"`, `\`, `<`, `>` or
+  whitespace); `wipeCache` empties the cache.
+- **Acceptance tests** (`acceptance.test.tsx`, 2): the real `<App />` and the framework's own
+  `renderApp`/`buildHtmlDoc`, with only `fetch` stubbed. (1) The server HTML contains every
+  person, with no "Loading...", from a single request (the JS-off criterion). (2) The
+  `<script>` the server emits is run as a browser would, then the app renders from that cache
+  with zero API calls. The test data contains `O'Brien` and a `</script>` string, so the
+  handoff only passes if serialization really survives the framework's unescaped embedding.
+  Breaking the `'` escape or the preload makes these fail. The browser-only criterion (exactly
+  one request from `useEffect` while hydrating) is not automated and stays a manual Chrome
+  check.
 - **Verified** (`npm start`): without-SSR makes exactly one API request and renders all 300
   fields; with-SSR HTML contains the people with JS disabled, and with JS enabled makes no API
   request and logs no errors. `tsc`, ESLint, Prettier and existing tests pass.

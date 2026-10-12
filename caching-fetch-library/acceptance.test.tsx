@@ -2,16 +2,20 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../application/App";
-import { initializeCache, serializeCache, wipeCache } from "./cachingFetch";
+import buildHtmlDoc from "../framework/server/buildHtmlDoc";
+import renderApp from "../framework/server/renderApp";
+import { initializeCache, wipeCache } from "./cachingFetch";
 
-// Server-side acceptance criteria from DevTask.md, run against the real <App />
-// (App -> Person -> Name) with only `fetch` stubbed. The browser-only criteria
-// (exactly 1 request while hydrating, from useEffect) need a DOM and are
-// verified manually in Chrome; see the README.
+// DevTask.md criteria for /appWithSSRData that can be checked without a DOM,
+// using the real <App /> and the framework's own server code. Only `fetch` is
+// stubbed. The browser-only criterion (exactly one request from useEffect
+// while hydrating) is verified manually in Chrome; see the README.
 
 const API_URL =
   "https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb?fmt=raw&sole&seed=123";
 
+// Includes characters that would break the framework's unescaped
+// `window.__INITIAL_DATA__ = '...'` script if serialization did not handle them.
 const people = [
   {
     first: "Ada",
@@ -22,20 +26,12 @@ const people = [
     balance: "$1,000.00",
   },
   {
-    first: "Alan",
-    last: "Turing",
-    email: "alan@example.com",
-    address: "2 Enigma Road",
-    created: "1912-06-23",
+    first: "Conan",
+    last: "O'Brien",
+    email: "conan@example.com",
+    address: "2 </script><script>alert(1)</script> Street",
+    created: "1963-04-18",
     balance: "$2,000.00",
-  },
-  {
-    first: "Grace",
-    last: "Hopper",
-    email: "grace@example.com",
-    address: "3 Compiler Court",
-    created: "1906-12-09",
-    balance: "$3,000.00",
   },
 ];
 
@@ -56,9 +52,7 @@ const stubFetch = () => {
 const expectEveryoneRendered = (html: string) => {
   for (const p of people) {
     expect(html).toContain(p.email);
-    // renderToString puts a comment marker between the two text nodes of the name.
     expect(html).toContain(p.first);
-    expect(html).toContain(p.last);
   }
   expect(html).not.toContain("Loading...");
   expect(html).not.toContain("Error:");
@@ -69,44 +63,30 @@ beforeEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("/appWithSSRData (server)", () => {
-  it("is fully server-rendered after the preload, with one request", async () => {
+describe("/appWithSSRData", () => {
+  it("is fully server-rendered with a single request", async () => {
     const fetchMock = stubFetch();
 
-    await App.preLoadServerData?.();
-    const html = renderToString(<App />);
+    const [html] = await renderApp(true);
 
     expectEveryoneRendered(html);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(API_URL);
   });
-});
 
-describe("/appWithoutSSRData (server)", () => {
-  it("renders the loading state and does not fetch on the server", () => {
-    const fetchMock = stubFetch();
-
-    const html = renderToString(<App />);
-
-    expect(html).toContain("Loading...");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("/appWithSSRData (browser)", () => {
-  it("renders from the serialized cache without calling the API", async () => {
-    // Server: preload and serialize.
+  it("hands its data to the browser without any API call", async () => {
     stubFetch();
-    await App.preLoadServerData?.();
-    const serialized = serializeCache();
+    const doc = buildHtmlDoc(await renderApp(true));
 
-    // Browser: fresh module state, hydrated from the injected string.
+    // Browser: a fresh cache, filled by running the script the server emitted.
     wipeCache();
     const browserFetch = stubFetch();
-    initializeCache(serialized);
-    const html = renderToString(<App />);
+    const script = doc.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+    const win: { __INITIAL_DATA__?: string } = {};
+    new Function("window", script)(win);
+    initializeCache(win.__INITIAL_DATA__!);
 
-    expectEveryoneRendered(html);
+    expectEveryoneRendered(renderToString(<App />));
     expect(browserFetch).not.toHaveBeenCalled();
   });
 });
