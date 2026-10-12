@@ -1,8 +1,9 @@
 # People Directory – repository setup
 
 A small React 18 SSR app served by Fastify, with a mocked API (msw). See
-[`DevTask.md`](./DevTask.md) for the assignment. This README covers **Task 1**: what was
-added to make the repo production-ready, and why.
+[`DevTask.md`](./DevTask.md) for the assignment. This README covers **Task 1** (what was
+added to make the repo production-ready, and why) and **Task 2** (the caching fetch library,
+its design and its limits), then known issues and next steps for both.
 
 ## Quick start
 
@@ -58,12 +59,14 @@ Each item is its own commit on `chore/task1-repo-setup`, so the reasoning is eas
   and `--max-warnings 0`. The `recommended` presets catch real bugs without the noise or slow
   type-aware linting of the `strict`/`type-checked` presets. ESLint and Prettier are kept
   separate: ESLint finds problems, Prettier formats.
-- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. The suite covers
-  `validateData` and the `Name`/`Person` components. Tests are written to be non-flaky by
-  construction: no network (the fetch hook is mocked), no timers, no randomness, no DOM
-  (components render with `renderToStaticMarkup`), and `retry: 0` so a flaky test fails
-  instead of hiding. They were also run 20 times with shuffled order, with no failures.
-  `cachingFetch.ts` is deliberately not tested here: it is the subject of Task 2.
+- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 20 tests in four files:
+  `validateData` (valid, empty, missing field, wrong type, non-array), the `Name`/`Person`
+  components (details at the right index, loading, error), and the caching library plus its
+  server-side acceptance criteria (see Task 2). Tests are written to be non-flaky by construction: no network (the fetch hook is
+  mocked in component tests, `fetch` is stubbed in library tests), no timers, no randomness,
+  no DOM (components render with `renderToStaticMarkup`), and `retry: 0` so a flaky test
+  fails instead of hiding. They were also run repeatedly with shuffled order, with no
+  failures.
 - **Pre-commit hook (husky + lint-staged).** ESLint and Prettier on staged files only, for
   fast local feedback. It is a convenience, not the gate: CI is the gate, because hooks can be
   skipped. `prepare` is `husky || true` so installs without devDependencies (Docker,
@@ -79,7 +82,9 @@ Runs on pull requests and pushes to `main`, with least-privilege permissions
 - **`docker`**: builds the image (no push) so a broken Dockerfile is caught in review.
 - **`audit`**: `npm audit --omit=dev --audit-level=high`, **non-blocking**
   (`continue-on-error`). See [Known issues](#known-issues-and-next-steps).
-- **Dependabot**: weekly updates for npm (minor/patch grouped) and GitHub Actions.
+- **Dependabot**: weekly updates for npm and GitHub Actions. Minor and patch npm updates are
+  grouped into one PR; major bumps arrive as separate PRs so each can be reviewed alone (the
+  Fastify 5 upgrade, #7, came this way).
 
 **Deployment (CD) is not configured.** The brief names no hosting target, so I did not guess
 one. The Docker image is the deployable artifact; the missing step is "push to a registry and
@@ -96,26 +101,78 @@ port, so the image sets `HOST=0.0.0.0`. `framework/server/index.ts` reads `HOST`
 > This image is for demonstrating the challenge app. It bundles msw and serves mocked data,
 > so it is not a production deployment of a real service.
 
+## Task 2: caching fetch library (`caching-fetch-library/cachingFetch.ts`)
+
+A cache of `Map<url, {data, error, promise}>`. The implementation is only in the file above;
+the other changes are its tests, removing its temporary lint/format exclusions, and this
+README. No application or framework code changed for Task 2.
+
+- **One request for many callers.** `useCachingFetch` is called from `App`, every `Person` and
+  every `Name`. The first call stores the in-flight promise; later calls for the same URL reuse
+  it, so there is a single network request. Hooks re-render through a small listener set when a
+  request settles.
+- **No fetch during SSR.** The hook only fetches inside `useEffect`, which never runs in
+  `renderToString`. On `/appWithoutSSRData` the server renders "Loading..." and the browser
+  fetches once, hydrating with the same initial state (no mismatch).
+- **`preloadCachingFetch`** awaits the same fetch on the server, so the later render finds data
+  synchronously. A failed preload does not 500 the page: failed entries are not serialized, so
+  the browser renders Loading and retries.
+- **Serialization.** `serializeCache` emits `encodeURIComponent(JSON)` with `'` also escaped.
+  The framework pastes the string into a single-quoted `<script>` literal without escaping, so
+  raw JSON containing `'`, `\` or `</script>` would break the page or allow script injection.
+  `initializeCache` reverses it. `wipeCache` is how the framework starts each request (see next point).
+- **Per-request cache on the server.** Server requests overlap, and a single shared map made
+  one request's `wipeCache()` erase another's in-flight data (that page rendered only
+  "Loading..." with no data). On the server each request now gets its own cache through
+  `AsyncLocalStorage`: `wipeCache()` opens a fresh one for the current request and every
+  library function reads the cache of its own request. In the browser there is one user and
+  one cache, so it uses a plain global map. `node:async_hooks` is loaded at runtime via
+  `process.getBuiltinModule` (Node >= 20.16, which `.nvmrc`/`node:20-alpine` provide) because
+  the same file is bundled for the browser and cannot import it statically. On an older Node
+  it would silently fall back to the shared map.
+- **Unit tests** (`cachingFetch.test.tsx`, 6): concurrent preloads make one fetch; preloaded
+  data reaches the hook synchronously; failed or non-2xx preloads don't throw and aren't
+  serialized; the hook doesn't fetch during server rendering; the serialized string is safe
+  for the framework's single-quoted script literal (no `'`, `"`, `\`, `<`, `>` or
+  whitespace); `wipeCache` empties the cache.
+- **Acceptance tests** (`acceptance.test.tsx`, 3): the real `<App />` and the framework's own
+  `renderApp`/`buildHtmlDoc`, with only `fetch` stubbed. (1) The server HTML contains every
+  person, with no "Loading...", from a single request (the JS-off criterion). (2) The
+  `<script>` the server emits is run as a browser would, then the app renders from that cache
+  with zero API calls. The test data contains `O'Brien` and a `</script>` string, so the
+  handoff only passes if serialization really survives the framework's unescaped embedding.
+  Breaking the `'` escape or the preload makes these fail. A third test starts a second
+  request while the first is still waiting on the API and asserts both pages are fully
+  rendered; it failed before the per-request cache and passes now. The browser-only criterion (exactly
+  one request from `useEffect` while hydrating) is not automated and stays a manual Chrome
+  check.
+- **Verified** (`npm start`): without-SSR makes exactly one API request and renders all 300
+  fields; with-SSR HTML contains the people with JS disabled, and with JS enabled makes no API
+  request and logs no errors. `tsc`, ESLint, Prettier and existing tests pass.
+
 ## Known issues and next steps
 
 **Verification status**
 
-- CI (`verify` and `docker` jobs) passes on GitHub. The `audit` job fails by design, see below.
-- The Docker image builds and runs locally; the repo owner confirmed it serves the app on a
-  mapped port. Two problems found along the way are fixed: a lockfile mismatch under npm 10
-  (esbuild version) and the server binding to loopback only (`HOST`).
+- CI (`verify` and `docker` jobs) passes on GitHub. The `audit` job (non-blocking) passes at the `high` level since the Fastify upgrade; see below.
+- The Docker image builds and runs locally, including with Task 2 (checked on Node 20.20.2):
+  both SSR routes return 200 with the people rendered. Two problems found along the way are
+  fixed: a lockfile mismatch under npm 10 (esbuild version) and the server binding to
+  loopback only (`HOST`).
 - Lesson learned: verify with the same Node/npm as CI (Node 20 / npm 10, pinned by
   `.nvmrc`), not the local toolchain.
-- The `/appWithSSRData` and `/appWithoutSSRData` routes return 500 until Task 2 implements
-  `cachingFetch.ts`; the container is only expected to serve `/` for now.
+- `/appWithSSRData` and `/appWithoutSSRData` now work (Task 2). Verified by hand with curl and
+  Chrome DevTools against `npm start` and re-checked after the per-request cache change.
 
 **Dependency findings (`npm audit`)**
 
-- `fastify@4` (high: memory-allocation DoS, `find-my-way` HTTP/2 DoS) and `valibot@0.30`
-  (moderate) are part of the provided framework, and the fixes are major upgrades (Fastify 5,
-  valibot 1.x). I did not upgrade them as part of repo setup: it changes the framework the
-  tasks are built on. The exposure here is low (GET routes, mock data, no HTTP/2). Plan:
-  upgrade each in its own PR, then make the `audit` job blocking.
+- `fastify` was upgraded 4.29.1 → 5.12.5 (Dependabot PR #7, merged by the repo owner), which
+  clears the high advisories. I first held it back because it changes the framework the tasks
+  are built on; before merging, the build, server, tests and audit were run locally on the PR
+  (and with Task 2 on top) and were healthy. `valibot@0.30` (moderate, provided framework) is
+  still on a pre-1.x release; the fix is a major upgrade and Dependabot has not opened a PR
+  for it, so it needs a manual, separate PR. The `audit` job gates on `high`, which now
+  passes, so it can be made blocking now; it stays non-blocking only until that is decided.
 - `esbuild` was bumped to 0.28, which clears its advisory. The bump was needed anyway:
   vitest 4's vite requires `esbuild ^0.27 || ^0.28`, and a mismatch made `npm ci` fail on
   npm 10.
@@ -123,11 +180,31 @@ port, so the image sets `HOST=0.0.0.0`. `framework/server/index.ts` reads `HOST`
   `lint-staged` is on v16 because v17 requires Node ≥ 22.22, which conflicts with the Node 20
   pin.
 
-**Temporary exclusions (to remove with Task 2)**
+**Caching library limitations**
 
-- `caching-fetch-library/cachingFetch.ts` is excluded from ESLint and Prettier while it is
-  still the unimplemented stub (it has unused parameters). Both exclusions are marked
-  `TODO(task-2)`.
+- No expiry, invalidation or size limit: entries live until `wipeCache`. Errors are cached too,
+  so a failed request is not retried until reload.
+- The per-request cache relies on the framework calling `wipeCache()` at the start of each
+  request (it does). A server request that never calls it would share the global cache. It
+  also needs Node >= 20.16 for `process.getBuiltinModule`.
+- No timeout or abort on `fetch`: a hung API hangs the SSR request.
+- Data is typed `unknown` and validated by the app, not the library. Only JSON responses are
+  supported.
+- Chrome logs `Uncaught (in promise)` on `/appWithoutSSRData`. The stack is entirely inside
+  MSW's service-worker message handler in `client.js`, not the library; the page works. The
+  console also warns that `mockServiceWorker.js` was generated by a different MSW version
+  (2.3.1 vs installed); `npx msw init` would refresh it, but that is framework code.
+- The framework's unescaped `window.__INITIAL_DATA__ = '...'` injection is fragile; a
+  `<script type="application/json">` block would be safer.
+- Framework (not changed, noted from reading it): the routes call `renderApp`/`buildHtmlDoc`
+  with no error handling, so a render error is a bare 500; the server reads `./dist/...`
+  relative to the working directory, so it only starts from the repo root; there is no health
+  endpoint or graceful shutdown; and the client always starts the MSW mock before hydrating,
+  so it cannot talk to a real API as-is.
+- The cache lifecycle is implicit global state: the library depends on the framework calling
+  `wipeCache()` first on every request. An explicit per-request cache object passed through
+  the render would be sturdier, but that changes the framework's API.
+- The hook's effect-driven client path has no automated test (needs jsdom or Playwright).
 
 **Would add with more time**
 
@@ -137,5 +214,9 @@ port, so the image sets `HOST=0.0.0.0`. `framework/server/index.ts` reads `HOST`
   CODEOWNERS, and branch protection requiring the `verify` job.
 - Stricter, type-aware ESLint presets once the codebase warrants the cost.
 - Replace the hard-coded API URL and port in the app and server with configuration.
-- Integration tests against the running server, once Task 2 makes the SSR routes work.
+- Integration tests against the running server, and a DOM-level test of the hook.
 - Pin GitHub Actions to commit SHAs (Dependabot can then keep them current).
+- Triage the open Dependabot PRs one by one; none are merged. Several are major bumps
+  (Actions `checkout`/`setup-node`/`build-push-action`/`setup-buildx`, `vitest` 5,
+  `eslint-plugin-react-hooks` 7, `react-dom`), and `@types/node` 26 conflicts with the Node 20
+  pin, so each needs its own check rather than a bulk merge.

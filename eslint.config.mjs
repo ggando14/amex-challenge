@@ -10,8 +10,6 @@ export default tseslint.config(
       "dist/",
       "coverage/",
       "framework/mock-server/mockServiceWorker.js",
-      // TODO(task-2): remove once cachingFetch.ts is implemented
-      "caching-fetch-library/cachingFetch.ts",
     ],
   },
   js.configs.recommended,
