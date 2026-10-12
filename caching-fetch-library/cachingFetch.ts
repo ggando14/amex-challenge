@@ -3,6 +3,7 @@
 // However, you must not change the surface API presented from this file,
 // and you should not need to change any other files in the project to complete the challenge
 
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { useEffect, useState } from "react";
 
 type Entry = {
@@ -12,12 +13,34 @@ type Entry = {
   promise: Promise<void> | null;
 };
 
-const cache = new Map<string, Entry>();
+type Cache = Map<string, Entry>;
+
+// In the browser there is one cache. On the server, requests overlap and each
+// must see only its own data, so every request gets its own cache, tracked
+// through async context. wipeCache() (called by the framework at the start of a
+// request) opens that request's fresh cache.
+// node:async_hooks cannot be imported statically: the same file is bundled for
+// the browser. getBuiltinModule only exists in Node, so the browser skips this.
+const globalCache: Cache = new Map();
+const requestCaches: AsyncLocalStorage<Cache> | undefined = (() => {
+  const nodeProcess = (
+    globalThis as {
+      process?: { getBuiltinModule?: (id: string) => unknown };
+    }
+  ).process;
+  const asyncHooks = nodeProcess?.getBuiltinModule?.("node:async_hooks") as
+    typeof import("node:async_hooks") | undefined;
+  return asyncHooks && new asyncHooks.AsyncLocalStorage<Cache>();
+})();
+
+const currentCache = (): Cache => requestCaches?.getStore() ?? globalCache;
+
 const listeners = new Set<() => void>();
 
 const notify = () => listeners.forEach((listener) => listener());
 
 const fetchInto = (url: string): Promise<void> => {
+  const cache = currentCache();
   const existing = cache.get(url);
   if (existing?.promise) return existing.promise;
 
@@ -75,13 +98,13 @@ export const useCachingFetch: UseCachingFetch = (url) => {
     listeners.add(listener);
     // Effects only run in the browser, so this never fetches during SSR.
     // fetchInto dedupes, so many components using one url make one request.
-    if (!cache.has(url)) void fetchInto(url);
+    if (!currentCache().has(url)) void fetchInto(url);
     return () => {
       listeners.delete(listener);
     };
   }, [url]);
 
-  const entry = cache.get(url);
+  const entry = currentCache().get(url);
   if (!entry) return { data: null, isLoading: true, error: null };
   return {
     data: entry.data,
@@ -131,7 +154,7 @@ export const preloadCachingFetch = async (url: string): Promise<void> => {
 // encodeURIComponent leaves "'" alone, hence the extra replace.
 export const serializeCache = (): string => {
   const settled: Record<string, unknown> = {};
-  cache.forEach((entry, url) => {
+  currentCache().forEach((entry, url) => {
     if (!entry.promise && !entry.error) settled[url] = entry.data;
   });
   return encodeURIComponent(JSON.stringify(settled)).replace(/'/g, "%27");
@@ -143,10 +166,11 @@ export const initializeCache = (serializedCache: string): void => {
     unknown
   >;
   Object.entries(settled).forEach(([url, data]) => {
-    cache.set(url, { data, error: null, promise: null });
+    currentCache().set(url, { data, error: null, promise: null });
   });
 };
 
 export const wipeCache = (): void => {
-  cache.clear();
+  globalCache.clear();
+  requestCaches?.enterWith(new Map());
 };

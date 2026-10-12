@@ -90,3 +90,43 @@ describe("/appWithSSRData", () => {
     expect(browserFetch).not.toHaveBeenCalled();
   });
 });
+
+describe("overlapping /appWithSSRData requests", () => {
+  it("each render its own data, even if another request starts mid-fetch", async () => {
+    // Same sequence as the route handler: wipe the cache, then preload and render.
+    const handle = async () => {
+      wipeCache();
+      return renderApp(true);
+    };
+
+    // Hold each API response until the test releases it.
+    const release: Array<() => void> = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          release.push(() =>
+            resolve({
+              ok: true,
+              status: 200,
+              statusText: "OK",
+              json: async () => people,
+            } as Response),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const requestA = handle();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const requestB = handle(); // starts while A is still waiting on the API
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    release[0]();
+    const [htmlA] = await requestA; // A finishes while B is still in flight
+    release[1]();
+    const [htmlB] = await requestB;
+
+    expectEveryoneRendered(htmlA);
+    expectEveryoneRendered(htmlB);
+  });
+});

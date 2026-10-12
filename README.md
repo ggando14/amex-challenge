@@ -58,7 +58,7 @@ Each item is its own commit on `chore/task1-repo-setup`, so the reasoning is eas
   and `--max-warnings 0`. The `recommended` presets catch real bugs without the noise or slow
   type-aware linting of the `strict`/`type-checked` presets. ESLint and Prettier are kept
   separate: ESLint finds problems, Prettier formats.
-- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 19 tests in four files:
+- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 20 tests in four files:
   `validateData` (valid, empty, missing field, wrong type, non-array), the `Name`/`Person`
   components (details at the right index, loading, error), and the caching library plus its
   server-side acceptance criteria (see Task 2). Tests are written to be non-flaky by construction: no network (the fetch hook is
@@ -116,19 +116,30 @@ the temporary lint/format exclusions).
 - **Serialization.** `serializeCache` emits `encodeURIComponent(JSON)` with `'` also escaped.
   The framework pastes the string into a single-quoted `<script>` literal without escaping, so
   raw JSON containing `'`, `\` or `</script>` would break the page or allow script injection.
-  `initializeCache` reverses it. `wipeCache` clears the map (the framework calls it per request).
+  `initializeCache` reverses it. `wipeCache` is how the framework starts each request (see next point).
+- **Per-request cache on the server.** Server requests overlap, and a single shared map made
+  one request's `wipeCache()` erase another's in-flight data (that page rendered only
+  "Loading..." with no data). On the server each request now gets its own cache through
+  `AsyncLocalStorage`: `wipeCache()` opens a fresh one for the current request and every
+  library function reads the cache of its own request. In the browser there is one user and
+  one cache, so it uses a plain global map. `node:async_hooks` is loaded at runtime via
+  `process.getBuiltinModule` (Node >= 20.16, which `.nvmrc`/`node:20-alpine` provide) because
+  the same file is bundled for the browser and cannot import it statically. On an older Node
+  it would silently fall back to the shared map.
 - **Unit tests** (`cachingFetch.test.tsx`, 6): concurrent preloads make one fetch; preloaded
   data reaches the hook synchronously; failed or non-2xx preloads don't throw and aren't
   serialized; the hook doesn't fetch during server rendering; the serialized string is safe
   for the framework's single-quoted script literal (no `'`, `"`, `\`, `<`, `>` or
   whitespace); `wipeCache` empties the cache.
-- **Acceptance tests** (`acceptance.test.tsx`, 2): the real `<App />` and the framework's own
+- **Acceptance tests** (`acceptance.test.tsx`, 3): the real `<App />` and the framework's own
   `renderApp`/`buildHtmlDoc`, with only `fetch` stubbed. (1) The server HTML contains every
   person, with no "Loading...", from a single request (the JS-off criterion). (2) The
   `<script>` the server emits is run as a browser would, then the app renders from that cache
   with zero API calls. The test data contains `O'Brien` and a `</script>` string, so the
   handoff only passes if serialization really survives the framework's unescaped embedding.
-  Breaking the `'` escape or the preload makes these fail. The browser-only criterion (exactly
+  Breaking the `'` escape or the preload makes these fail. A third test starts a second
+  request while the first is still waiting on the API and asserts both pages are fully
+  rendered; it failed before the per-request cache and passes now. The browser-only criterion (exactly
   one request from `useEffect` while hydrating) is not automated and stays a manual Chrome
   check.
 - **Verified** (`npm start`): without-SSR makes exactly one API request and renders all 300
@@ -167,9 +178,10 @@ the temporary lint/format exclusions).
 
 - No expiry, invalidation or size limit: entries live until `wipeCache`. Errors are cached too,
   so a failed request is not retried until reload.
-- The cache is module-global. Safe here because the framework calls `wipeCache` per request,
-  but concurrent SSR requests could share or wipe each other's entries; a per-request cache
-  (context) would fix it.
+- The per-request cache relies on the framework calling `wipeCache()` at the start of each
+  request (it does). A server request that never calls it would share the global cache. It
+  also needs Node >= 20.16 for `process.getBuiltinModule`.
+- No timeout or abort on `fetch`: a hung API hangs the SSR request.
 - Data is typed `unknown` and validated by the app, not the library. Only JSON responses are
   supported.
 - Chrome logs `Uncaught (in promise)` on `/appWithoutSSRData`. The stack is entirely inside
