@@ -3,6 +3,45 @@
 // However, you must not change the surface API presented from this file,
 // and you should not need to change any other files in the project to complete the challenge
 
+import { useEffect, useState } from "react";
+
+type Entry = {
+  data: unknown;
+  error: Error | null;
+  // Set while a request is in flight; shared by every caller of the same url.
+  promise: Promise<void> | null;
+};
+
+const cache = new Map<string, Entry>();
+const listeners = new Set<() => void>();
+
+const notify = () => listeners.forEach((listener) => listener());
+
+const fetchInto = (url: string): Promise<void> => {
+  const existing = cache.get(url);
+  if (existing?.promise) return existing.promise;
+
+  const entry: Entry = { data: null, error: null, promise: null };
+  entry.promise = fetch(url)
+    .then((res) => {
+      if (!res.ok)
+        throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+      return res.json();
+    })
+    .then((data) => {
+      entry.data = data;
+    })
+    .catch((err) => {
+      entry.error = err instanceof Error ? err : new Error(String(err));
+    })
+    .finally(() => {
+      entry.promise = null;
+      notify();
+    });
+  cache.set(url, entry);
+  return entry.promise;
+};
+
 type UseCachingFetch = (url: string) => {
   isLoading: boolean;
   data: unknown;
@@ -28,12 +67,26 @@ type UseCachingFetch = (url: string) => {
  *
  */
 export const useCachingFetch: UseCachingFetch = (url) => {
+  // Re-render when any request settles; the cache itself is the source of truth.
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const listener = () => setTick((t) => t + 1);
+    listeners.add(listener);
+    // Effects only run in the browser, so this never fetches during SSR.
+    // fetchInto dedupes, so many components using one url make one request.
+    if (!cache.has(url)) void fetchInto(url);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, [url]);
+
+  const entry = cache.get(url);
+  if (!entry) return { data: null, isLoading: true, error: null };
   return {
-    data: null,
-    isLoading: false,
-    error: new Error(
-      'UseCachingFetch has not been implemented, please read the instructions in DevTask.md',
-    ),
+    data: entry.data,
+    isLoading: entry.promise !== null,
+    error: entry.error,
   };
 };
 
@@ -52,9 +105,9 @@ export const useCachingFetch: UseCachingFetch = (url) => {
  *
  */
 export const preloadCachingFetch = async (url: string): Promise<void> => {
-  throw new Error(
-    'preloadCachingFetch has not been implemented, please read the instructions in DevTask.md',
-  );
+  // A failed preload is not fatal: the entry is skipped on serialization, so
+  // the page renders its loading state and the browser retries the request.
+  await fetchInto(url);
 };
 
 /**
@@ -73,8 +126,27 @@ export const preloadCachingFetch = async (url: string): Promise<void> => {
  * 4. This file passes a type-check.
  *
  */
-export const serializeCache = (): string => '';
+// The framework embeds this string inside a single-quoted <script> literal
+// without escaping, so it must contain no quotes, backslashes or "<".
+// encodeURIComponent leaves "'" alone, hence the extra replace.
+export const serializeCache = (): string => {
+  const settled: Record<string, unknown> = {};
+  cache.forEach((entry, url) => {
+    if (!entry.promise && !entry.error) settled[url] = entry.data;
+  });
+  return encodeURIComponent(JSON.stringify(settled)).replace(/'/g, "%27");
+};
 
-export const initializeCache = (serializedCache: string): void => {};
+export const initializeCache = (serializedCache: string): void => {
+  const settled = JSON.parse(decodeURIComponent(serializedCache)) as Record<
+    string,
+    unknown
+  >;
+  Object.entries(settled).forEach(([url, data]) => {
+    cache.set(url, { data, error: null, promise: null });
+  });
+};
 
-export const wipeCache = (): void => {};
+export const wipeCache = (): void => {
+  cache.clear();
+};
