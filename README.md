@@ -89,7 +89,9 @@ roll out to the chosen platform" (see next steps).
 
 Multi-stage `node:20-alpine`: the build stage installs and bundles; the runtime stage copies
 only `dist/` (esbuild bundles all dependencies, which I verified runs without `node_modules`),
-runs as the non-root `node` user and exposes port 3000. `.dockerignore` keeps the context small.
+runs as the non-root `node` user and exposes port 3000. The server binds to `localhost` by default, which is unreachable through a published
+port, so the image sets `HOST=0.0.0.0`. `framework/server/index.ts` reads `HOST` for this
+(the only framework change in this branch; the default behaviour is unchanged). `.dockerignore` keeps the context small.
 
 > This image is for demonstrating the challenge app. It bundles msw and serves mocked data,
 > so it is not a production deployment of a real service.

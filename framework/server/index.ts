@@ -55,13 +55,17 @@ const runServer = async () => {
       .send(buildHtmlDoc(await renderApp(false)));
   });
 
-  fastify.listen({ port: 3000 }, (err, address) => {
-    if (err) {
-      fastify.log.error(err);
-      process.exit(1);
-    }
-    console.log(`Server is now listening on ${address}`);
-  });
+  // HOST=0.0.0.0 is needed inside a container so published ports are reachable
+  fastify.listen(
+    { port: 3000, host: process.env.HOST ?? "localhost" },
+    (err, address) => {
+      if (err) {
+        fastify.log.error(err);
+        process.exit(1);
+      }
+      console.log(`Server is now listening on ${address}`);
+    },
+  );
 };
 
 runServer();

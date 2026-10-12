@@ -15,6 +15,8 @@ RUN npm run build
 # --- runtime: esbuild bundles all dependencies, so only dist/ is needed ---
 FROM node:20-alpine AS runtime
 ENV NODE_ENV=production
+# Listen on all interfaces; the default (localhost) is unreachable from outside the container.
+ENV HOST=0.0.0.0
 WORKDIR /app
 COPY --from=build --chown=node:node /app/dist ./dist
 USER node
