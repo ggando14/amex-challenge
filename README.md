@@ -98,14 +98,16 @@ port, so the image sets `HOST=0.0.0.0`. `framework/server/index.ts` reads `HOST`
 
 ## Known issues and next steps
 
-**Not verified**
+**Verification status**
 
-- The Docker image has not been built by the author (no Docker on that machine). A first
-  build by the reviewer caught a lockfile problem under npm 10, now fixed (see the esbuild
-  commit); the image has since been verified only up to `npm ci` + build + serve under npm 10.
-- CI has not run yet: the repo has no remote. Workflow steps were run locally from a clean
-  checkout. Lesson learned: do that with the same Node/npm as CI (Node 20 / npm 10), which is
-  what `.nvmrc` pins.
+- CI (`verify` and `docker` jobs) passes on GitHub. The `audit` job fails by design, see below.
+- The Docker image builds and runs locally; the repo owner confirmed it serves the app on a
+  mapped port. Two problems found along the way are fixed: a lockfile mismatch under npm 10
+  (esbuild version) and the server binding to loopback only (`HOST`).
+- Lesson learned: verify with the same Node/npm as CI (Node 20 / npm 10, pinned by
+  `.nvmrc`), not the local toolchain.
+- The `/appWithSSRData` and `/appWithoutSSRData` routes return 500 until Task 2 implements
+  `cachingFetch.ts`; the container is only expected to serve `/` for now.
 
 **Dependency findings (`npm audit`)**
 
