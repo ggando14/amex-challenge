@@ -58,10 +58,10 @@ Each item is its own commit on `chore/task1-repo-setup`, so the reasoning is eas
   and `--max-warnings 0`. The `recommended` presets catch real bugs without the noise or slow
   type-aware linting of the `strict`/`type-checked` presets. ESLint and Prettier are kept
   separate: ESLint finds problems, Prettier formats.
-- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 18 tests in three files:
+- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 21 tests in four files:
   `validateData` (valid, empty, missing field, wrong type, non-array), the `Name`/`Person`
-  components (details at the right index, loading, error), and the caching library (see
-  Task 2). Tests are written to be non-flaky by construction: no network (the fetch hook is
+  components (details at the right index, loading, error), and the caching library plus its
+  server-side acceptance criteria (see Task 2). Tests are written to be non-flaky by construction: no network (the fetch hook is
   mocked in component tests, `fetch` is stubbed in library tests), no timers, no randomness,
   no DOM (components render with `renderToStaticMarkup`), and `retry: 0` so a flaky test
   fails instead of hiding. They were also run repeatedly with shuffled order, with no
@@ -124,6 +124,12 @@ the temporary lint/format exclusions).
   `'`, `"`, `\`, `<`, `>` or whitespace; removing the `'` escape makes this test fail);
   `wipeCache` empties the cache. The hook's client-side effect (fetch on mount, re-render on
   settle) is not unit-tested: it needs a DOM environment, and was verified in Chrome instead.
+- **Acceptance tests** (`acceptance.test.tsx`, 3): the real `<App />` with only `fetch` stubbed.
+  After `preLoadServerData` the server HTML contains every person, with no "Loading..." and
+  one request in total (the JS-off criterion); without a preload the server renders
+  "Loading..." and never fetches; after `initializeCache(serializeCache())` in a fresh cache
+  the app renders from the cache with zero requests. The browser-only criterion (exactly one
+  request from `useEffect` while hydrating) is not automated and stays a manual Chrome check.
 - **Verified** (`npm start`): without-SSR makes exactly one API request and renders all 300
   fields; with-SSR HTML contains the people with JS disabled, and with JS enabled makes no API
   request and logs no errors. `tsc`, ESLint, Prettier and existing tests pass.
