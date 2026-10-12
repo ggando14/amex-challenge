@@ -1,8 +1,9 @@
 # People Directory – repository setup
 
 A small React 18 SSR app served by Fastify, with a mocked API (msw). See
-[`DevTask.md`](./DevTask.md) for the assignment. This README covers **Task 1**: what was
-added to make the repo production-ready, and why.
+[`DevTask.md`](./DevTask.md) for the assignment. This README covers **Task 1** (what was
+added to make the repo production-ready, and why) and **Task 2** (the caching fetch library,
+its design and its limits), then known issues and next steps for both.
 
 ## Quick start
 
@@ -100,8 +101,9 @@ port, so the image sets `HOST=0.0.0.0`. `framework/server/index.ts` reads `HOST`
 
 ## Task 2: caching fetch library (`caching-fetch-library/cachingFetch.ts`)
 
-Module-level `Map<url, {data, error, promise}>`. Only the file above changed (plus removing
-the temporary lint/format exclusions).
+A cache of `Map<url, {data, error, promise}>`. The implementation is only in the file above;
+the other changes are its tests, removing its temporary lint/format exclusions, and this
+README. No application or framework code changed for Task 2.
 
 - **One request for many callers.** `useCachingFetch` is called from `App`, every `Person` and
   every `Name`. The first call stores the in-flight promise; later calls for the same URL reuse
@@ -151,13 +153,14 @@ the temporary lint/format exclusions).
 **Verification status**
 
 - CI (`verify` and `docker` jobs) passes on GitHub. The `audit` job (non-blocking) passes at the `high` level since the Fastify upgrade; see below.
-- The Docker image builds and runs locally; the repo owner confirmed it serves the app on a
-  mapped port. Two problems found along the way are fixed: a lockfile mismatch under npm 10
-  (esbuild version) and the server binding to loopback only (`HOST`).
+- The Docker image builds and runs locally, including with Task 2 (checked on Node 20.20.2):
+  both SSR routes return 200 with the people rendered. Two problems found along the way are
+  fixed: a lockfile mismatch under npm 10 (esbuild version) and the server binding to
+  loopback only (`HOST`).
 - Lesson learned: verify with the same Node/npm as CI (Node 20 / npm 10, pinned by
   `.nvmrc`), not the local toolchain.
 - `/appWithSSRData` and `/appWithoutSSRData` now work (Task 2). Verified by hand with curl and
-  Chrome DevTools against `npm start`; the Docker image has not been re-checked since.
+  Chrome DevTools against `npm start` and re-checked after the per-request cache change.
 
 **Dependency findings (`npm audit`)**
 
@@ -190,6 +193,14 @@ the temporary lint/format exclusions).
   (2.3.1 vs installed); `npx msw init` would refresh it, but that is framework code.
 - The framework's unescaped `window.__INITIAL_DATA__ = '...'` injection is fragile; a
   `<script type="application/json">` block would be safer.
+- Framework (not changed, noted from reading it): the routes call `renderApp`/`buildHtmlDoc`
+  with no error handling, so a render error is a bare 500; the server reads `./dist/...`
+  relative to the working directory, so it only starts from the repo root; there is no health
+  endpoint or graceful shutdown; and the client always starts the MSW mock before hydrating,
+  so it cannot talk to a real API as-is.
+- The cache lifecycle is implicit global state: the library depends on the framework calling
+  `wipeCache()` first on every request. An explicit per-request cache object passed through
+  the render would be sturdier, but that changes the framework's API.
 - The hook's effect-driven client path has no automated test (needs jsdom or Playwright).
 
 **Would add with more time**
