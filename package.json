@@ -8,7 +8,9 @@
     "build:client": "esbuild ./framework/client/index.tsx --bundle --minify --platform=browser --outfile=dist/client.js",
     "start": "npm run build && node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "author": "",
   "license": "ISC",
@@ -17,6 +19,7 @@
     "@types/react": "^18.3.2",
     "@types/react-dom": "^18.3.0",
     "esbuild": "^0.21.3",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.3"
   },
   "dependencies": {

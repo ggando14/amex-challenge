@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+package-lock.json
+framework/mock-server/mockServiceWorker.js
+# assignment brief, not ours to reformat
+DevTask.md
+# TODO(task-2): remove once cachingFetch.ts is implemented and formatted
+caching-fetch-library/cachingFetch.ts
