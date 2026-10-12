@@ -12,6 +12,13 @@ npm ci
 npm start      # builds, then serves http://localhost:3000
 ```
 
+Or with Docker:
+
+```bash
+docker build -t challenge .
+docker run --rm -p 3000:3000 challenge   # -p 3001:3000 if port 3000 is taken
+```
+
 | Script                      | What it does                          |
 | --------------------------- | ------------------------------------- |
 | `npm start`                 | Build, then run `dist/server.js`      |
@@ -91,19 +98,23 @@ runs as the non-root `node` user and exposes port 3000. `.dockerignore` keeps th
 
 **Not verified**
 
-- The Docker image was **not built locally** (no Docker on the author's machine). The CI
-  `docker` job is its first real build.
-- CI has not run yet: the repo has no remote. All workflow steps were run locally from a clean
-  `git archive` checkout after `npm ci`.
+- The Docker image has not been built by the author (no Docker on that machine). A first
+  build by the reviewer caught a lockfile problem under npm 10, now fixed (see the esbuild
+  commit); the image has since been verified only up to `npm ci` + build + serve under npm 10.
+- CI has not run yet: the repo has no remote. Workflow steps were run locally from a clean
+  checkout. Lesson learned: do that with the same Node/npm as CI (Node 20 / npm 10), which is
+  what `.nvmrc` pins.
 
 **Dependency findings (`npm audit`)**
 
-- `fastify@4` (high: memory-allocation DoS, `find-my-way` HTTP/2 DoS), plus moderate findings
-  in `esbuild` and `valibot`. All three are part of the provided framework, and the fixes are
-  major upgrades (Fastify 5, valibot 1.x, esbuild 0.28). I did not upgrade them as part of
-  repo setup: it changes the framework the tasks are built on. The exposure here is low (GET
-  routes, mock data, no HTTP/2). Plan: upgrade each in its own PR, then make the `audit` job
-  blocking.
+- `fastify@4` (high: memory-allocation DoS, `find-my-way` HTTP/2 DoS) and `valibot@0.30`
+  (moderate) are part of the provided framework, and the fixes are major upgrades (Fastify 5,
+  valibot 1.x). I did not upgrade them as part of repo setup: it changes the framework the
+  tasks are built on. The exposure here is low (GET routes, mock data, no HTTP/2). Plan:
+  upgrade each in its own PR, then make the `audit` job blocking.
+- `esbuild` was bumped to 0.28, which clears its advisory. The bump was needed anyway:
+  vitest 4's vite requires `esbuild ^0.27 || ^0.28`, and a mismatch made `npm ci` fail on
+  npm 10.
 - The tooling I added (vitest, lint-staged) was kept on patched versions.
   `lint-staged` is on v16 because v17 requires Node ≥ 22.22, which conflicts with the Node 20
   pin.
