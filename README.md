@@ -132,7 +132,7 @@ the temporary lint/format exclusions).
 
 **Verification status**
 
-- CI (`verify` and `docker` jobs) passes on GitHub. The `audit` job fails by design, see below.
+- CI (`verify` and `docker` jobs) passes on GitHub. The `audit` job (non-blocking) passes at the `high` level since the Fastify upgrade; see below.
 - The Docker image builds and runs locally; the repo owner confirmed it serves the app on a
   mapped port. Two problems found along the way are fixed: a lockfile mismatch under npm 10
   (esbuild version) and the server binding to loopback only (`HOST`).
@@ -143,11 +143,12 @@ the temporary lint/format exclusions).
 
 **Dependency findings (`npm audit`)**
 
-- `fastify@4` (high: memory-allocation DoS, `find-my-way` HTTP/2 DoS) and `valibot@0.30`
-  (moderate) are part of the provided framework, and the fixes are major upgrades (Fastify 5,
-  valibot 1.x). I did not upgrade them as part of repo setup: it changes the framework the
-  tasks are built on. The exposure here is low (GET routes, mock data, no HTTP/2). Plan:
-  upgrade each in its own PR, then make the `audit` job blocking.
+- `fastify` was upgraded 4.29.1 → 5.12.5 by Dependabot (PR #7), which clears the high
+  advisories. I first held it back because it changes the framework the tasks are built on;
+  before merging I ran the build and server locally (and with Task 2 on top) and checked
+  that the routes, tests and audit were healthy. `valibot@0.30` (moderate, provided
+  framework) is still on a pre-1.x release; the fix is a major upgrade, so it stays a
+  separate PR. Remaining plan: upgrade it, then make the `audit` job blocking.
 - `esbuild` was bumped to 0.28, which clears its advisory. The bump was needed anyway:
   vitest 4's vite requires `esbuild ^0.27 || ^0.28`, and a mismatch made `npm ci` fail on
   npm 10.
