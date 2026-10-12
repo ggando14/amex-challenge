@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.github
+.husky
+.idea
+.DS_Store
+coverage
+*.log
+Dockerfile
+.dockerignore

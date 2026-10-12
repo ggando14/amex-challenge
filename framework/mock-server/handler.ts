@@ -1,7 +1,7 @@
-import { delay, http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from "msw";
 
 export const handler = http.get(
-  'https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb',
+  "https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb",
   async () => {
     await delay();
     return HttpResponse.json(
@@ -10,7 +10,7 @@ export const handler = http.get(
       ),
       {
         status: 202,
-        statusText: 'Mocked status',
+        statusText: "Mocked status",
       },
     );
   },

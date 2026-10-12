@@ -1,5 +1,5 @@
-import { setupWorker } from 'msw/browser';
-import { handler } from './handler';
+import { setupWorker } from "msw/browser";
+import { handler } from "./handler";
 
 export const startMswClient = async () => {
   const worker = setupWorker(handler);

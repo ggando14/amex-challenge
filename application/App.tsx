@@ -1,10 +1,10 @@
-import React, { FC } from 'react';
+import React, { FC } from "react";
 import {
   preloadCachingFetch,
   useCachingFetch,
-} from '../caching-fetch-library/cachingFetch';
-import Person from './Person';
-import { validateData } from './validation';
+} from "../caching-fetch-library/cachingFetch";
+import Person from "./Person";
+import { validateData } from "./validation";
 
 type Application = FC & {
   preLoadServerData?: () => Promise<void>;
@@ -16,7 +16,7 @@ const App: Application = () => {
     isLoading,
     error,
   } = useCachingFetch(
-    'https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb?fmt=raw&sole&seed=123',
+    "https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb?fmt=raw&sole&seed=123",
   );
   if (isLoading) return <div>Loading...</div>;
   if (error || rawData === null) return <div>Error: {error?.message}</div>;
@@ -35,7 +35,7 @@ const App: Application = () => {
 
 App.preLoadServerData = async () => {
   await preloadCachingFetch(
-    'https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb?fmt=raw&sole&seed=123',
+    "https://randomapi.com/api/6de6abfedb24f889e0b5f675edc50deb?fmt=raw&sole&seed=123",
   );
 };
 
