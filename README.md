@@ -58,12 +58,14 @@ Each item is its own commit on `chore/task1-repo-setup`, so the reasoning is eas
   and `--max-warnings 0`. The `recommended` presets catch real bugs without the noise or slow
   type-aware linting of the `strict`/`type-checked` presets. ESLint and Prettier are kept
   separate: ESLint finds problems, Prettier formats.
-- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. The suite covers
-  `validateData` and the `Name`/`Person` components. Tests are written to be non-flaky by
-  construction: no network (the fetch hook is mocked), no timers, no randomness, no DOM
-  (components render with `renderToStaticMarkup`), and `retry: 0` so a flaky test fails
-  instead of hiding. They were also run 20 times with shuffled order, with no failures.
-  `cachingFetch.ts` is deliberately not tested here: it is the subject of Task 2 (see below); unit tests for it are a next step.
+- **Tests (Vitest).** Fast, TypeScript-native, no Babel config. 18 tests in three files:
+  `validateData` (valid, empty, missing field, wrong type, non-array), the `Name`/`Person`
+  components (details at the right index, loading, error), and the caching library (see
+  Task 2). Tests are written to be non-flaky by construction: no network (the fetch hook is
+  mocked in component tests, `fetch` is stubbed in library tests), no timers, no randomness,
+  no DOM (components render with `renderToStaticMarkup`), and `retry: 0` so a flaky test
+  fails instead of hiding. They were also run repeatedly with shuffled order, with no
+  failures.
 - **Pre-commit hook (husky + lint-staged).** ESLint and Prettier on staged files only, for
   fast local feedback. It is a convenience, not the gate: CI is the gate, because hooks can be
   skipped. `prepare` is `husky || true` so installs without devDependencies (Docker,
@@ -115,6 +117,13 @@ the temporary lint/format exclusions).
   The framework pastes the string into a single-quoted `<script>` literal without escaping, so
   raw JSON containing `'`, `\` or `</script>` would break the page or allow script injection.
   `initializeCache` reverses it. `wipeCache` clears the map (the framework calls it per request).
+- **Tests** (`cachingFetch.test.tsx`, 8): concurrent preloads make one fetch; preloaded data
+  reaches the hook synchronously; failed or non-2xx preloads don't throw and aren't
+  serialized; the hook doesn't fetch during server rendering; serialize/initialize round
+  trip; the serialized string is safe for the framework's single-quoted script literal (no
+  `'`, `"`, `\`, `<`, `>` or whitespace; removing the `'` escape makes this test fail);
+  `wipeCache` empties the cache. The hook's client-side effect (fetch on mount, re-render on
+  settle) is not unit-tested: it needs a DOM environment, and was verified in Chrome instead.
 - **Verified** (`npm start`): without-SSR makes exactly one API request and renders all 300
   fields; with-SSR HTML contains the people with JS disabled, and with JS enabled makes no API
   request and logs no errors. `tsc`, ESLint, Prettier and existing tests pass.
@@ -161,7 +170,7 @@ the temporary lint/format exclusions).
   (2.3.1 vs installed); `npx msw init` would refresh it, but that is framework code.
 - The framework's unescaped `window.__INITIAL_DATA__ = '...'` injection is fragile; a
   `<script type="application/json">` block would be safer.
-- No unit tests yet for the library.
+- The hook's effect-driven client path has no automated test (needs jsdom or Playwright).
 
 **Would add with more time**
 
@@ -171,5 +180,5 @@ the temporary lint/format exclusions).
   CODEOWNERS, and branch protection requiring the `verify` job.
 - Stricter, type-aware ESLint presets once the codebase warrants the cost.
 - Replace the hard-coded API URL and port in the app and server with configuration.
-- Integration tests against the running server, and unit tests for `cachingFetch.ts`.
+- Integration tests against the running server, and a DOM-level test of the hook.
 - Pin GitHub Actions to commit SHAs (Dependabot can then keep them current).
